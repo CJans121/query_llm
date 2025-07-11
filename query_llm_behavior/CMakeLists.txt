@@ -20,17 +20,15 @@ include_directories(
 add_library(${PROJECT_NAME} src/${PROJECT_NAME}/${PROJECT_NAME}.cpp)
 
 # Specify ROS dependencies for the libraries
-ament_target_dependencies(query_llm rclcpp behaviortree_cpp spot_utils)
+ament_target_dependencies(${PROJECT_NAME} rclcpp behaviortree_cpp spot_utils)
 
-# Install the 'include' directory
-install(DIRECTORY include/
-  DESTINATION include/${PROJECT_NAME}
-)
-
-# Install the libraries
-install(TARGETS
-  ${PROJECT_NAME}
-  DESTINATION lib/${PROJECT_NAME}
+# Install the library and its headers
+install(TARGETS ${PROJECT_NAME}
+  EXPORT ${PROJECT_NAME} # Export for visibility with other CMake packages
+  ARCHIVE DESTINATION lib  # Static library installation path
+  LIBRARY DESTINATION lib  # Dynamic library installation path
+  RUNTIME DESTINATION bin  # Executable installation path
+  INCLUDES DESTINATION include # Header files
 )
 
 if(BUILD_TESTING)
