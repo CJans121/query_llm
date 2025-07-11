@@ -5,44 +5,53 @@ if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
   add_compile_options(-Wall -Wextra -Wpedantic)
 endif()
 
-# find dependencies
+# Dependencies
 find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(behaviortree_cpp REQUIRED)
-
 find_package(spot_utils REQUIRED)
-# Specify include directories
-include_directories(
-  include
-)
 
-# Add libraries
+# Add the library
 add_library(${PROJECT_NAME} src/${PROJECT_NAME}/${PROJECT_NAME}.cpp)
 
-# Specify ROS dependencies for the libraries
-ament_target_dependencies(${PROJECT_NAME} rclcpp behaviortree_cpp spot_utils)
-
-# Install the library and its headers
-install(TARGETS ${PROJECT_NAME}
-  EXPORT ${PROJECT_NAME} # Export for visibility with other CMake packages
-  ARCHIVE DESTINATION lib  # Static library installation path
-  LIBRARY DESTINATION lib  # Dynamic library installation path
-  RUNTIME DESTINATION bin  # Executable installation path
-  INCLUDES DESTINATION include # Header files
+# Proper include propagation
+target_include_directories(${PROJECT_NAME} PUBLIC
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+  $<INSTALL_INTERFACE:include>
 )
 
-# Export the group for downstream packages
+# Link dependencies
+ament_target_dependencies(${PROJECT_NAME}
+  rclcpp
+  behaviortree_cpp
+  spot_utils
+)
+
+# Install header files (entire include tree)
+install(DIRECTORY include/
+  DESTINATION include
+)
+
+# Install the library
+install(TARGETS ${PROJECT_NAME}
+  EXPORT ${PROJECT_NAME}
+  ARCHIVE DESTINATION lib
+  LIBRARY DESTINATION lib
+  RUNTIME DESTINATION bin
+  INCLUDES DESTINATION include
+)
+
+# Export to downstream packages
+ament_export_include_directories(include)
+ament_export_libraries(${PROJECT_NAME})
+ament_export_dependencies(rclcpp behaviortree_cpp spot_utils)
 ament_export_targets(${PROJECT_NAME} HAS_LIBRARY_TARGET)
 
+# Testing
 if(BUILD_TESTING)
   find_package(ament_lint_auto REQUIRED)
-  # the following line skips the linter which checks for copyrights
-  # comment the line when a copyright and license is added to all source files
-  set(ament_cmake_copyright_FOUND TRUE)
-  # the following line skips cpplint (only works in a git repo)
-  # comment the line when this package is in a git repo and when
-  # a copyright and license is added to all source files
   set(ament_cmake_cpplint_FOUND TRUE)
+  set(ament_cmake_copyright_FOUND TRUE)
   ament_lint_auto_find_test_dependencies()
 endif()
 
