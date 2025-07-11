@@ -9,7 +9,29 @@ endif()
 find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(behaviortree_cpp REQUIRED)
+
 find_package(spot_utils REQUIRED)
+# Specify include directories
+include_directories(
+  include
+)
+
+# Add libraries
+add_library(${PROJECT_NAME} src/${PROJECT_NAME}/${PROJECT_NAME}.cpp)
+
+# Specify ROS dependencies for the libraries
+ament_target_dependencies(query_llm rclcpp behaviortree_cpp spot_utils)
+
+# Install the 'include' directory
+install(DIRECTORY include/
+  DESTINATION include/${PROJECT_NAME}
+)
+
+# Install the libraries
+install(TARGETS
+  ${PROJECT_NAME}
+  DESTINATION lib/${PROJECT_NAME}
+)
 
 if(BUILD_TESTING)
   find_package(ament_lint_auto REQUIRED)
