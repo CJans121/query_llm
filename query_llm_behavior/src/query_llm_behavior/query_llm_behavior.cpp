@@ -1,6 +1,6 @@
-#include "chair_manipulation/query_llm.hpp"
+#include "query_llm_behavior/query_llm_behavior.hpp"
 
-namespace query_llm {
+namespace query_llm_behavior {
 
 QueryLlm::QueryLlm(const std::string &name, const BT::NodeConfig &config)
     : BT::SyncActionNode(name, config), Node(name) {}
@@ -92,5 +92,5 @@ std::string QueryLlm::get_llm_answer_(
   }
 }
 
-} // namespace query_llm
+} // namespace query_llm_behavior
 

@@ -1,5 +1,5 @@
 /**
- * @file query_llm.hpp
+ * @file query_llm_behavior.hpp
  * @author Janak Panthi (Crasun Jans)
  * @brief Behavior Tree node that queries a multimodal LLM using model name, prompt and optional images.
  *
@@ -8,8 +8,8 @@
  * then provided via a separate output port.
  */
 
-#ifndef QUERY_LLM_HPP
-#define QUERY_LLM_HPP
+#ifndef QUERY_LLM_BEHAVIOR_HPP
+#define QUERY_LLM_BEHAVIOR_HPP
 
 #include <behaviortree_cpp/action_node.h>
 #include <rclcpp/rclcpp.hpp>
@@ -21,7 +21,7 @@
 #include "ollama/ollama.hpp"
 #include "nlohmann/json.hpp"
 
-namespace query_llm {
+namespace query_llm_behavior {
 
 /**
  * @brief Behavior Tree node that queries a vision-capable LLM using a textual prompt
@@ -104,7 +104,7 @@ private:
   const int max_tokens_ = 200;
 };
 
-} // namespace query_llm
+} // namespace query_llm_behavior
 
-#endif // QUERY_LLM_HPP
+#endif // QUERY_LLM_BEHAVIOR_HPP
 
