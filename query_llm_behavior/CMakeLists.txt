@@ -31,6 +31,9 @@ install(TARGETS ${PROJECT_NAME}
   INCLUDES DESTINATION include # Header files
 )
 
+# Export the group for downstream packages
+ament_export_targets(${PROJECT_NAME} HAS_LIBRARY_TARGET)
+
 if(BUILD_TESTING)
   find_package(ament_lint_auto REQUIRED)
   # the following line skips the linter which checks for copyrights
