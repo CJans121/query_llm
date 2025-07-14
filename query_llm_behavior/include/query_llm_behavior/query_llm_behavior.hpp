@@ -7,7 +7,6 @@
  * `parse_llm_answer()` to convert the raw string into a structured object, which is
  * then provided via a separate output port.
  */
-
 #ifndef QUERY_LLM_BEHAVIOR_HPP
 #define QUERY_LLM_BEHAVIOR_HPP
 
@@ -17,6 +16,7 @@
 #include <string>
 #include <memory>
 #include <vector>
+#include <sstream>
 
 #include "ollama/ollama.hpp"
 #include "nlohmann/json.hpp"
@@ -32,6 +32,7 @@ namespace query_llm_behavior {
  * and allows subclasses to implement custom logic to parse the raw LLM response
  * into a structured object.
  */
+template<typename ParsedType = void>
 class QueryLlm : public BT::SyncActionNode, public rclcpp::Node {
 public:
   /**
@@ -40,7 +41,8 @@ public:
    * @param name Name of the Behavior Tree node.
    * @param config BT node configuration structure.
    */
-  QueryLlm(const std::string &name, const BT::NodeConfig &config);
+  inline QueryLlm(const std::string &name, const BT::NodeConfig &config)
+      : BT::SyncActionNode(name, config), Node(name) {}
 
   /**
    * @brief Defines all input/output ports for this node.
@@ -53,10 +55,17 @@ public:
    *
    * - Output:
    *   - `llm_answer` (`std::shared_ptr<std::string>`): Raw string response from the LLM.
-   *   - `llm_parsed_answer` (`std::shared_ptr<void>`): Optionally parsed structured result.
-   *
+   *   - `llm_parsed_answer` (`std::shared_ptr<ParsedType>`): Optionally parsed structured result.
    */
-  static BT::PortsList providedPorts();
+  inline static BT::PortsList providedPorts() {
+    return {
+      BT::InputPort<std::string>("llm_model"),
+      BT::InputPort<std::string>("llm_prompt"),
+      BT::InputPort<std::shared_ptr<std::vector<spot_utils::StampedImage>>>("stamped_image_list"),
+      BT::OutputPort<std::shared_ptr<std::string>>("llm_answer"),
+      BT::OutputPort<std::shared_ptr<ParsedType>>("llm_parsed_answer")
+    };
+  }
 
   /**
    * @brief Ticks the node once and performs the LLM query.
@@ -66,7 +75,38 @@ public:
    *
    * @return NodeStatus::SUCCESS if query completed, throws otherwise.
    */
-  BT::NodeStatus tick() override;
+  inline BT::NodeStatus tick() override {
+    std::string llm_model;
+    if (auto llm_model_exp = getInput<std::string>("llm_model"); llm_model_exp) {
+      llm_model = llm_model_exp.value();
+    } else {
+      RCLCPP_WARN(this->get_logger(), "Input [llm_model] not specified. Using default: %s", default_llm_model_);
+      llm_model = default_llm_model_;
+    }
+
+    const auto llm_prompt_exp = getInput<std::string>("llm_prompt");
+    if (!llm_prompt_exp) {
+      throw BT::RuntimeError("Missing or invalid input [llm_prompt]");
+    }
+    const std::string &llm_prompt = llm_prompt_exp.value();
+
+    using StampedImageVecPtr = std::shared_ptr<std::vector<spot_utils::StampedImage>>;
+    const auto stamped_image_list_exp = getInput<StampedImageVecPtr>("stamped_image_list");
+    if (!stamped_image_list_exp) {
+      throw BT::RuntimeError("Missing or invalid input [stamped_image_list]");
+    }
+
+    const auto &stamped_image_list = *stamped_image_list_exp.value();
+    const std::string answer = get_llm_answer_(llm_model, llm_prompt, stamped_image_list);
+
+    RCLCPP_INFO(this->get_logger(), "LLM response:\n%s", answer.c_str());
+    setOutput("llm_answer", std::make_shared<std::string>(answer));
+
+    if (auto parsed = parse_llm_answer(answer); parsed) {
+      setOutput("llm_parsed_answer", parsed);
+    }
+    return BT::NodeStatus::SUCCESS;
+  }
 
 protected:
   /**
@@ -77,7 +117,7 @@ protected:
    * @param raw_answer The raw string returned from the LLM.
    * @return A shared pointer to the parsed result (or nullptr if unused).
    */
-  virtual std::shared_ptr<void> parse_llm_answer([[maybe_unused]] const std::string &raw_answer) {
+  inline virtual std::shared_ptr<ParsedType> parse_llm_answer([[maybe_unused]] const std::string &raw_answer) {
     return nullptr;
   }
 
@@ -92,10 +132,42 @@ private:
    * @param stamped_base64_img_list List of images in base64 format with IDs.
    * @return The raw text response from the LLM.
    */
-  std::string get_llm_answer_(
+  inline std::string get_llm_answer_(
       const std::string &llm_model,
       const std::string &llm_prompt,
-      const std::vector<spot_utils::StampedImage> &stamped_base64_img_list);
+      const std::vector<spot_utils::StampedImage> &stamped_base64_img_list) {
+
+    std::vector<std::string> images;
+    std::ostringstream img_order;
+
+    for (size_t i = 0; i < stamped_base64_img_list.size(); ++i) {
+      img_order << "[" << i + 1 << "] " << stamped_base64_img_list[i].id << "\n";
+      images.push_back(stamped_base64_img_list[i].base64_image);
+    }
+
+    const std::string full_prompt = llm_prompt + "\nImages are provided in the following order:\n" + img_order.str();
+
+    try {
+      ollama::request req(ollama::message_type::generation);
+      req["model"] = llm_model;
+      req["prompt"] = full_prompt;
+      req["max_tokens"] = max_tokens_;
+      req["images"] = images;
+
+      const ollama::response resp = ollama::generate(req);
+      const auto jresp = resp.as_json();
+
+      if (!jresp.contains("response") || !jresp["response"].is_string()) {
+        RCLCPP_ERROR(this->get_logger(), "Invalid or missing 'response' field from LLM.");
+        return "";
+      }
+
+      return jresp["response"];
+    } catch (const std::exception &e) {
+      RCLCPP_ERROR(this->get_logger(), "LLM call failed: %s. Is your model loaded?", e.what());
+      return "";
+    }
+  }
 
   /// Default LLM model name (used when no model is specified via input port).
   static constexpr const char *default_llm_model_ = "llava";
@@ -107,4 +179,3 @@ private:
 } // namespace query_llm_behavior
 
 #endif // QUERY_LLM_BEHAVIOR_HPP
-
