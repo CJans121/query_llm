@@ -127,54 +127,55 @@ protected:
 private:
 
   /**
-   * @brief Ensures the specified LLM model is loaded and ready for use.
+   * @brief Ensures that the specified LLM model is available locally by checking,
+   *        pulling, and loading as needed.
    *
-   * Attempts to load the model using `ollama::load_model()`. If the model is not yet available,
-   * it will try to pull the model using `ollama::pull_model()` and load it again. Exceptions are
-   * thrown if either pull or load fails.
+   * This method first checks the list of locally available models to determine
+   * whether the target model is already cached. If not found, it attempts to pull
+   * it from the Ollama server. After pulling, it verifies the model can be loaded.
    *
-   * This function logs detailed status and warnings to aid in debugging. A warning is raised
-   * if the model could not be pulled, potentially due to a misspelling or missing model.
-   *
-   * @param llm_model The name of the model to load (e.g., "llava", "llama3:8b").
-   * @throws std::runtime_error If model pulling or loading fails.
+   * @param llm_model Name of the LLM model (e.g., "llava" or "llama3:8b").
+   * @throws std::runtime_error if model listing, pulling, or loading fails.
    */
   inline void load_model_(const std::string &llm_model) {
-    // Try to load model if already available
+    // Check if the model is already listed (loaded) locally 
     try {
-      if (ollama::load_model(llm_model)) {
-        RCLCPP_INFO(this->get_logger(), "Model [%s] already loaded.", llm_model.c_str());
+      const auto models = ollama::list_models();
+      const auto found = std::find(models.begin(), models.end(), llm_model);
+      if (found != models.end()) {
+        RCLCPP_DEBUG(this->get_logger(), "Model [%s] is already available locally.", llm_model.c_str());
         return;
       }
     } catch (const std::exception &e) {
-      RCLCPP_WARN(this->get_logger(), "load_model failed (model not yet loaded): %s", e.what());
+      throw std::runtime_error("Failed to list local models: " + std::string(e.what()));
     }
   
-    RCLCPP_INFO(this->get_logger(), "Model [%s] not loaded. Attempting to pull...", llm_model.c_str());
+    // Pull the model from the remote server if not found locally
+    RCLCPP_INFO(this->get_logger(), "Model [%s] not found locally. Attempting to pull...", llm_model.c_str());
   
-    // Pull the model
     try {
       if (!ollama::pull_model(llm_model)) {
         throw std::runtime_error(
-            "Failed to pull model: " + llm_model + ". It may not exist or is misspelled.");
+            "Failed to pull model: " + llm_model + ". The model may not exist or the name may be incorrect.");
       }
     } catch (const std::exception &e) {
-      throw std::runtime_error("Error pulling model [" + llm_model + "]: " + e.what());
+      throw std::runtime_error("Exception occurred while pulling model [" + llm_model + "]: " + std::string(e.what()));
     }
   
+    // Load the model into memory after successful pull
     RCLCPP_INFO(this->get_logger(), "Model [%s] successfully pulled. Attempting to load...", llm_model.c_str());
   
-    // Attempt to load again
     try {
       if (!ollama::load_model(llm_model)) {
-        throw std::runtime_error("Model pulled but failed to load: " + llm_model);
+        throw std::runtime_error("Model pulled but still failed to load: " + llm_model);
       }
     } catch (const std::exception &e) {
-      throw std::runtime_error("Error loading model [" + llm_model + "] after pull: " + e.what());
+      throw std::runtime_error("Exception occurred while loading model [" + llm_model + "]: " + std::string(e.what()));
     }
   
     RCLCPP_INFO(this->get_logger(), "Model [%s] successfully loaded.", llm_model.c_str());
   }
+  
     
   /**
    * @brief Queries the LLM with the model, prompt, and associated images.
