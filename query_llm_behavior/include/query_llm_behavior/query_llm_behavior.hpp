@@ -84,6 +84,9 @@ public:
       llm_model = default_llm_model_;
     }
 
+    // Preload model
+    this->load_model_(llm_model);
+
     const auto llm_prompt_exp = getInput<std::string>("llm_prompt");
     if (!llm_prompt_exp) {
       throw BT::RuntimeError("Missing or invalid input [llm_prompt]");
@@ -122,6 +125,57 @@ protected:
   }
 
 private:
+
+  /**
+   * @brief Ensures the specified LLM model is loaded and ready for use.
+   *
+   * Attempts to load the model using `ollama::load_model()`. If the model is not yet available,
+   * it will try to pull the model using `ollama::pull_model()` and load it again. Exceptions are
+   * thrown if either pull or load fails.
+   *
+   * This function logs detailed status and warnings to aid in debugging. A warning is raised
+   * if the model could not be pulled, potentially due to a misspelling or missing model.
+   *
+   * @param llm_model The name of the model to load (e.g., "llava", "llama3:8b").
+   * @throws std::runtime_error If model pulling or loading fails.
+   */
+  inline void load_model_(const std::string &llm_model) {
+    // Try to load model if already available
+    try {
+      if (ollama::load_model(llm_model)) {
+        RCLCPP_INFO(this->get_logger(), "Model [%s] already loaded.", llm_model.c_str());
+        return;
+      }
+    } catch (const std::exception &e) {
+      RCLCPP_WARN(this->get_logger(), "load_model failed (model not yet loaded): %s", e.what());
+    }
+  
+    RCLCPP_INFO(this->get_logger(), "Model [%s] not loaded. Attempting to pull...", llm_model.c_str());
+  
+    // Pull the model
+    try {
+      if (!ollama::pull_model(llm_model)) {
+        throw std::runtime_error(
+            "Failed to pull model: " + llm_model + ". It may not exist or is misspelled.");
+      }
+    } catch (const std::exception &e) {
+      throw std::runtime_error("Error pulling model [" + llm_model + "]: " + e.what());
+    }
+  
+    RCLCPP_INFO(this->get_logger(), "Model [%s] successfully pulled. Attempting to load...", llm_model.c_str());
+  
+    // Attempt to load again
+    try {
+      if (!ollama::load_model(llm_model)) {
+        throw std::runtime_error("Model pulled but failed to load: " + llm_model);
+      }
+    } catch (const std::exception &e) {
+      throw std::runtime_error("Error loading model [" + llm_model + "] after pull: " + e.what());
+    }
+  
+    RCLCPP_INFO(this->get_logger(), "Model [%s] successfully loaded.", llm_model.c_str());
+  }
+    
   /**
    * @brief Queries the LLM with the model, prompt, and associated images.
    *
