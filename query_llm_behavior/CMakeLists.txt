@@ -9,7 +9,10 @@ endif()
 find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(behaviortree_cpp REQUIRED)
-find_package(spot_utils REQUIRED)
+find_package(sensor_msgs REQUIRED)
+
+# Non-ROS packages
+find_package(OpenCV REQUIRED)
 
 # Install header files (entire include tree)
 install(DIRECTORY include/
@@ -18,7 +21,7 @@ install(DIRECTORY include/
 
 # Export to downstream packages
 ament_export_include_directories(include)
-ament_export_dependencies(rclcpp behaviortree_cpp spot_utils)
+ament_export_dependencies(rclcpp behaviortree_cpp sensor_msgs OpenCV)
 
 # No library target is created — this is header-only
 

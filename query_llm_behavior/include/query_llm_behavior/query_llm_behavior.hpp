@@ -12,11 +12,13 @@
 
 #include <behaviortree_cpp/action_node.h>
 #include <rclcpp/rclcpp.hpp>
-#include <spot_utils/camera_client.hpp>
 #include <string>
 #include <memory>
 #include <vector>
 #include <sstream>
+#include <opencv2/opencv.hpp>
+#include <base64/Base64.h>
+#include <sensor_msgs/msg/image.hpp>
 
 #include "ollama/ollama.hpp"
 #include "nlohmann/json.hpp"
@@ -51,7 +53,7 @@ public:
    * - Input:
    *   - `llm_model` (`std::string`, optional): Model identifier (e.g. "llava"). Defaults to `"llava"`.
    *   - `llm_prompt` (`std::string`, required): Prompt to be passed to the model.
-   *   - `stamped_image_list` (`std::shared_ptr<std::vector<spot_utils::StampedImage>>`): Images with metadata.
+   *   - `image_list` (`std::shared_ptr<std::vector<sensor_msgs::msg::Image>>`): Images with metadata.
    *
    * - Output:
    *   - `llm_answer` (`std::shared_ptr<std::string>`): Raw string response from the LLM.
@@ -61,7 +63,7 @@ public:
     return {
       BT::InputPort<std::string>("llm_model"),
       BT::InputPort<std::string>("llm_prompt"),
-      BT::InputPort<std::shared_ptr<std::vector<spot_utils::StampedImage>>>("stamped_image_list"),
+      BT::InputPort<std::shared_ptr<std::vector<sensor_msgs::msg::Image>>>("image_list"),
       BT::OutputPort<std::shared_ptr<std::string>>("llm_answer"),
       BT::OutputPort<std::shared_ptr<ParsedType>>("llm_parsed_answer")
     };
@@ -93,14 +95,14 @@ public:
     }
     const std::string &llm_prompt = llm_prompt_exp.value();
 
-    using StampedImageVecPtr = std::shared_ptr<std::vector<spot_utils::StampedImage>>;
-    const auto stamped_image_list_exp = getInput<StampedImageVecPtr>("stamped_image_list");
-    if (!stamped_image_list_exp) {
-      throw BT::RuntimeError("Missing or invalid input [stamped_image_list]");
+    using ImageVecPtr = std::shared_ptr<std::vector<sensor_msgs::msg::Image>>;
+    const auto image_list_exp = getInput<ImageVecPtr>("image_list");
+    if (!image_list_exp) {
+      throw BT::RuntimeError("Missing or invalid input [image_list]");
     }
 
-    const auto &stamped_image_list = *stamped_image_list_exp.value();
-    const std::string answer = get_llm_answer_(llm_model, llm_prompt, stamped_image_list);
+    const ImageVecPtr &image_list = image_list_exp.value();
+    const std::string answer = get_llm_answer_(llm_model, llm_prompt, image_list);
 
     RCLCPP_INFO(this->get_logger(), "LLM response:\n%s", answer.c_str());
     setOutput("llm_answer", std::make_shared<std::string>(answer));
@@ -143,7 +145,7 @@ private:
       const auto models = ollama::list_models();
       const auto found = std::find(models.begin(), models.end(), llm_model);
       if (found != models.end()) {
-        RCLCPP_DEBUG(this->get_logger(), "Model [%s] is already available locally.", llm_model.c_str());
+        RCLCPP_WARN(this->get_logger(), "Model [%s] is already available locally.", llm_model.c_str());
         return;
       }
     } catch (const std::exception &e) {
@@ -190,14 +192,25 @@ private:
   inline std::string get_llm_answer_(
       const std::string &llm_model,
       const std::string &llm_prompt,
-      const std::vector<spot_utils::StampedImage> &stamped_base64_img_list) {
+      const std::shared_ptr<std::vector<sensor_msgs::msg::Image>> &img_msg_list) {
 
     std::vector<std::string> images;
     std::ostringstream img_order;
 
-    for (size_t i = 0; i < stamped_base64_img_list.size(); ++i) {
-      img_order << "[" << i + 1 << "] " << stamped_base64_img_list[i].id << "\n";
-      images.push_back(stamped_base64_img_list[i].base64_image);
+    for (const sensor_msgs::msg::Image& img_msg: img_msg_list) {
+      img_order << "[" << i + 1 << "] " << img_msg.header.frame_id << "\n";
+      const std::string& base64_img = convert_msg_to_base64_(img_msg);
+      images.push_back(base64_img);
+
+      // Debug dump base64 image
+      std::string decoded;
+      const std::string decode_error = macaron::Base64::Decode(base64_img, decoded);
+      if (decode_error.empty()) {
+        std::ofstream out("debug_image_" + std::to_string(i) + ".jpg", std::ios::binary);
+        out.write(decoded.data(), decoded.size());
+      } else {
+        RCLCPP_WARN(this->get_logger(), "Failed to decode base64 image %zu: %s", i, decode_error.c_str());
+      }
     }
 
     const std::string full_prompt = llm_prompt + "\nImages are provided in the following order:\n" + img_order.str();
@@ -224,11 +237,63 @@ private:
     }
   }
 
+  // Convert cv::Mat to a base64-encoded string with a specified format
+  std::string convert_mat_to_base64_(const cv::Mat &input,
+                                       const std::string &img_format_) {
+    // Encode the cv::Mat to a specified image format (e.g., JPEG, PNG)
+    std::vector<unsigned char> buffer;
+    std::vector<int> params;
+  
+    // Set encoding parameters for quality, if needed (e.g., JPEG quality)
+    if (img_format_ == "jpeg" || img_format_ == "jpg")
+      params = {cv::IMWRITE_JPEG_QUALITY, 95}; // Adjust quality as needed
+    else if (img_format_ == "png")
+      params = {cv::IMWRITE_PNG_COMPRESSION, 3}; // Adjust compression as needed
+  
+    if (!cv::imencode("." + img_format_, input, buffer, params)) {
+      throw std::runtime_error("Failed to encode image to format: " +
+                               img_format_);
+    }
+  
+    // Convert the binary buffer to a base64 string
+    std::string encodedImage =
+        base64::to_base64(std::string(buffer.begin(), buffer.end()));
+  
+    if (encodedImage.empty()) {
+      throw std::runtime_error("Base64 image is empty!");
+    }
+  
+    return encodedImage;
+  }
+
+  std::string convert_msg_to_base64_(const sensor_msgs::msg::Image &ros_image) {
+  
+    try {
+      // Create a shared_ptr msg from the image
+      const auto msg = std::make_shared<sensor_msgs::msg::Image>(ros_image);
+  
+      // Convert ROS2 Image message to OpenCV image
+      cv_bridge::CvImagePtr cv_ptr;
+      cv_ptr = cv_bridge::toCvCopy(msg, sensor_msgs::image_encodings::RGB8);
+  
+      // Get OpenCV Mat from cv_bridge
+      const cv::Mat image = cv_ptr->image;
+  
+      return convert_mat_to_base64_(image, "jpeg");
+    } catch (cv_bridge::Exception &e) {
+      throw std::runtime_error(std::string("Error during image conversion: ") +
+                               e.what());
+    }
+  }
+
   /// Default LLM model name (used when no model is specified via input port).
   static constexpr const char *default_llm_model_ = "llava";
 
   /// Maximum number of tokens allowed in the LLM response.
   const int max_tokens_ = 200;
+
+  /// Image format for encoding
+  const std::string img_format_ = "jpeg";
 };
 
 } // namespace query_llm_behavior
