@@ -229,8 +229,19 @@ private:
     }
   }
 
-  // Convert cv::Mat to a base64-encoded string with a specified format
-  std::string convert_mat_to_base64_(const cv::Mat &input,
+  /**
+   * @brief Converts a cv::Mat image to a base64-encoded string using the specified image format.
+   *
+   * This function first encodes the input image into the desired format (e.g., JPEG or PNG),
+   * and then converts the resulting binary data into a base64-encoded string.
+   *
+   * @param input The OpenCV image (cv::Mat) to encode.
+   * @param img_format_ Image format to use for encoding (e.g., "jpeg", "png").
+   * @return Base64-encoded string of the compressed image.
+   *
+   * @throws std::runtime_error if encoding fails or the base64 string is empty.
+   */
+  inline std::string convert_mat_to_base64_(const cv::Mat &input,
                                        const std::string &img_format_) {
     // Encode the cv::Mat to a specified image format (e.g., JPEG, PNG)
     std::vector<unsigned char> buffer;
@@ -258,7 +269,18 @@ private:
     return encodedImage;
   }
 
-  std::string convert_msg_to_base64_(const sensor_msgs::msg::Image &ros_image) {
+  /**
+   * @brief Converts a ROS2 sensor_msgs::msg::Image message to a base64-encoded JPEG string.
+   *
+   * This function uses cv_bridge to convert a ROS2 image message into an OpenCV image,
+   * and then compresses and base64-encodes it using JPEG format.
+   *
+   * @param ros_image The input ROS2 image message.
+   * @return Base64-encoded string of the JPEG-compressed image.
+   *
+   * @throws std::runtime_error if the image cannot be converted or encoded.
+   */
+  inline std::string convert_msg_to_base64_(const sensor_msgs::msg::Image &ros_image) {
   
     try {
       // Create a shared_ptr msg from the image
