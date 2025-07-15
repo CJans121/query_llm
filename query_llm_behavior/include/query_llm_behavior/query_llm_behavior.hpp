@@ -201,9 +201,26 @@ private:
     for (size_t i = 0; i < img_msg_list->size(); ++i) {
       const sensor_msgs::msg::Image& img_msg = img_msg_list->at(i);
       img_order << "[" << i + 1 << "] " << img_msg.header.frame_id << "\n";
+    
+      std::string frame_id_safe = img_msg.header.frame_id;
+      std::replace(frame_id_safe.begin(), frame_id_safe.end(), '/', '_');
+    
+      try {
+        save_image_to_file(img_msg, frame_id_safe + "_ros_image.jpg");
+      } catch (const std::exception &e) {
+        RCLCPP_ERROR(rclcpp::get_logger("example_usage"), "Failed to save ROS image: %s", e.what());
+      }
+    
       const std::string& base64_img = convert_msg_to_base64_(img_msg);
+      try {
+        save_image_to_file(base64_img, frame_id_safe + "_base64_image.jpg");
+      } catch (const std::exception &e) {
+        RCLCPP_ERROR(rclcpp::get_logger("example_usage"), "Failed to save base64 image: %s", e.what());
+      }
+    
       images.push_back(base64_img);
     }
+
 
     const std::string full_prompt = llm_prompt + "\nImages are provided in the following order:\n" + img_order.str();
 
@@ -280,23 +297,67 @@ private:
    *
    * @throws std::runtime_error if the image cannot be converted or encoded.
    */
-  inline std::string convert_msg_to_base64_(const sensor_msgs::msg::Image &ros_image) {
-  
+inline std::string convert_msg_to_base64_(const sensor_msgs::msg::Image &ros_image) {
+  try {
+    // Create a shared_ptr msg from the image
+    const auto msg = std::make_shared<sensor_msgs::msg::Image>(ros_image);
+
+    // Convert ROS2 Image message to OpenCV image (in RGB format)
+    cv_bridge::CvImagePtr cv_ptr;
+    cv_ptr = cv_bridge::toCvCopy(msg, sensor_msgs::image_encodings::RGB8); // Assuming all incoming ROS msgs have this encoding
+
+    // Convert RGB (ROS standard) to BGR (OpenCV default) to avoid color shift
+    cv::Mat bgr_image;
+    cv::cvtColor(cv_ptr->image, bgr_image, cv::COLOR_RGB2BGR);
+
+    return convert_mat_to_base64_(bgr_image, img_format_);
+  } catch (cv_bridge::Exception &e) {
+    throw std::runtime_error(std::string("Error during image conversion: ") + e.what());
+  }
+}
+
+  /**
+   * @brief Utility function to save a ROS image message to disk as a JPEG file.
+   *
+   * This function can be used for debugging purposes to inspect intermediate image data.
+   *
+   * @param img ROS sensor_msgs::msg::Image to be saved.
+   * @param filename Target path to save the JPEG image (e.g., "/tmp/debug.jpg").
+   * @throws std::runtime_error if the image cannot be decoded or saved.
+   */
+  inline void save_image_to_file(const sensor_msgs::msg::Image &img, const std::string &filename) {
     try {
-      // Create a shared_ptr msg from the image
-      const auto msg = std::make_shared<sensor_msgs::msg::Image>(ros_image);
-  
-      // Convert ROS2 Image message to OpenCV image
-      cv_bridge::CvImagePtr cv_ptr;
-      cv_ptr = cv_bridge::toCvCopy(msg, sensor_msgs::image_encodings::RGB8);
-  
-      // Get OpenCV Mat from cv_bridge
-      const cv::Mat image = cv_ptr->image;
-  
-      return convert_mat_to_base64_(image, "jpeg");
-    } catch (cv_bridge::Exception &e) {
-      throw std::runtime_error(std::string("Error during image conversion: ") +
-                               e.what());
+      const auto msg = std::make_shared<sensor_msgs::msg::Image>(img);
+      cv_bridge::CvImagePtr cv_ptr = cv_bridge::toCvCopy(msg, sensor_msgs::image_encodings::BGR8); //OpenCV expects this encoding
+
+      if (!cv::imwrite(filename, cv_ptr->image)) {
+        throw std::runtime_error("Failed to write image to file: " + filename);
+      }
+    } catch (const std::exception &e) {
+      throw std::runtime_error("Image debug save failed: " + std::string(e.what()));
+    }
+  }
+
+  /**
+   * @brief Utility function to save a base64-encoded image to a binary file for debugging.
+   *
+   * Decodes the base64 string and writes the resulting binary image content to the file.
+   *
+   * @param base64_img The base64-encoded image string.
+   * @param filename The path to write the decoded image binary to (e.g., "/tmp/image.jpg").
+   * @throws std::runtime_error if decoding or writing fails.
+   */
+  inline void save_image_to_file(const std::string &base64_img, const std::string &filename) {
+    try {
+      const std::string decoded = base64::from_base64(base64_img);
+      std::ofstream out(filename, std::ios::binary);
+      if (!out) {
+        throw std::runtime_error("Could not open file for writing: " + filename);
+      }
+      out.write(decoded.data(), decoded.size());
+      out.close();
+    } catch (const std::exception &e) {
+      throw std::runtime_error("Failed to save base64 image to file: " + std::string(e.what()));
     }
   }
 
