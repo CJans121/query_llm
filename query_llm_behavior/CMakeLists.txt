@@ -10,6 +10,7 @@ find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(behaviortree_cpp REQUIRED)
 find_package(sensor_msgs REQUIRED)
+find_package(cv_bridge REQUIRED)
 
 # Non-ROS packages
 find_package(OpenCV REQUIRED)
@@ -21,7 +22,7 @@ install(DIRECTORY include/
 
 # Export to downstream packages
 ament_export_include_directories(include)
-ament_export_dependencies(rclcpp behaviortree_cpp sensor_msgs OpenCV)
+ament_export_dependencies(rclcpp behaviortree_cpp sensor_msgs OpenCV cv_bridge)
 
 # No library target is created — this is header-only
 

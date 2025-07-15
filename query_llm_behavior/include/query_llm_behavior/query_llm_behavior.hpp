@@ -17,7 +17,8 @@
 #include <vector>
 #include <sstream>
 #include <opencv2/opencv.hpp>
-#include <base64/Base64.h>
+#include <cv_bridge/cv_bridge.h>
+#include <base64/base64.hpp>
 #include <sensor_msgs/msg/image.hpp>
 
 #include "ollama/ollama.hpp"
@@ -186,7 +187,7 @@ private:
    *
    * @param llm_model Model to be used (e.g., "llava").
    * @param llm_prompt User prompt with optional image references.
-   * @param stamped_base64_img_list List of images in base64 format with IDs.
+   * @param img_msg_list List of images as vector of sensor_msgs::msg::Image
    * @return The raw text response from the LLM.
    */
   inline std::string get_llm_answer_(
@@ -197,20 +198,11 @@ private:
     std::vector<std::string> images;
     std::ostringstream img_order;
 
-    for (const sensor_msgs::msg::Image& img_msg: img_msg_list) {
+    for (size_t i = 0; i < img_msg_list->size(); ++i) {
+      const sensor_msgs::msg::Image& img_msg = img_msg_list->at(i);
       img_order << "[" << i + 1 << "] " << img_msg.header.frame_id << "\n";
       const std::string& base64_img = convert_msg_to_base64_(img_msg);
       images.push_back(base64_img);
-
-      // Debug dump base64 image
-      std::string decoded;
-      const std::string decode_error = macaron::Base64::Decode(base64_img, decoded);
-      if (decode_error.empty()) {
-        std::ofstream out("debug_image_" + std::to_string(i) + ".jpg", std::ios::binary);
-        out.write(decoded.data(), decoded.size());
-      } else {
-        RCLCPP_WARN(this->get_logger(), "Failed to decode base64 image %zu: %s", i, decode_error.c_str());
-      }
     }
 
     const std::string full_prompt = llm_prompt + "\nImages are provided in the following order:\n" + img_order.str();
