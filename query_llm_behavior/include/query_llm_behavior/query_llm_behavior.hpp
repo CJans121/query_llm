@@ -190,60 +190,123 @@ private:
    * @param img_msg_list List of images as vector of sensor_msgs::msg::Image
    * @return The raw text response from the LLM.
    */
-  inline std::string get_llm_answer_(
-      const std::string &llm_model,
-      const std::string &llm_prompt,
-      const std::shared_ptr<std::vector<sensor_msgs::msg::Image>> &img_msg_list) {
+   inline std::string get_llm_answer_(
+       const std::string &llm_model,
+       const std::string &llm_prompt,
+       const std::shared_ptr<std::vector<sensor_msgs::msg::Image>> &img_msg_list)
+   {
+     // Validate input
+     if (!img_msg_list || img_msg_list->empty()) {
+       RCLCPP_ERROR(this->get_logger(),
+                    "Image list is null or empty; aborting LLM call.");
+       return "";
+     }
+   
+     // 1) Build the stitching‑order note
+     std::ostringstream img_order;
+     img_order << "Images have been stitched side‑by‑side in the following order:\n";
+     for (size_t i = 0; i < img_msg_list->size(); ++i) {
+       const auto &img = img_msg_list->at(i);
+       img_order << "[" << (i + 1) << "] " << img.header.frame_id << "\n";
+     }
+   
+     const std::string full_prompt =
+         llm_prompt + "\n" + img_order.str();
+   
+     // Stitch into one panorama and encode
+     const cv::Mat pano = stitch_images_horizontally_(*img_msg_list);
+     if (pano.empty()) {
+       RCLCPP_ERROR(this->get_logger(),
+                    "Stitched image is empty; aborting LLM call.");
+       return "";
+     }
+   
+     std::string stitched_b64;
+     try {
+       stitched_b64 = convert_mat_to_base64_(pano, img_format_);
+     } catch (const std::exception &e) {
+       RCLCPP_ERROR(this->get_logger(),
+                    "Failed to base64‑encode stitched image: %s", e.what());
+       return "";
+     }
+   
+     // Optional: save for debugging
+     try {
+       save_image_to_file(stitched_b64, "stitched_base64_image.jpg");
+     } catch (const std::exception &e) {
+       RCLCPP_WARN(this->get_logger(),
+                   "Could not save debug image: %s", e.what());
+     }
+   
+     // Build & send the request
+     try {
+       ollama::request req(ollama::message_type::generation);
+       req["model"]      = llm_model;
+       req["prompt"]     = full_prompt;
+       req["max_tokens"] = max_tokens_;
+       req["image"]      = stitched_b64;
+   
+       const ollama::response resp = ollama::generate(req);
+       const auto jresp = resp.as_json();
+   
+       if (!jresp.contains("response") || !jresp["response"].is_string()) {
+         RCLCPP_ERROR(this->get_logger(),
+                      "Invalid or missing 'response' field from LLM.");
+         return "";
+       }
+       return jresp["response"].get<std::string>();
+   
+     } catch (const std::exception &e) {
+       RCLCPP_ERROR(this->get_logger(),
+                    "LLM call failed: %s. Is your model loaded?", e.what());
+       return "";
+     }
+   }
 
-    std::vector<std::string> images;
-    std::ostringstream img_order;
-
-    for (size_t i = 0; i < img_msg_list->size(); ++i) {
-      const sensor_msgs::msg::Image& img_msg = img_msg_list->at(i);
-      img_order << "[" << i + 1 << "] " << img_msg.header.frame_id << "\n";
-    
-      std::string frame_id_safe = img_msg.header.frame_id;
-      std::replace(frame_id_safe.begin(), frame_id_safe.end(), '/', '_');
-    
-      try {
-        save_image_to_file(img_msg, frame_id_safe + "_ros_image.jpg");
-      } catch (const std::exception &e) {
-        RCLCPP_ERROR(rclcpp::get_logger("example_usage"), "Failed to save ROS image: %s", e.what());
-      }
-    
-      const std::string& base64_img = convert_msg_to_base64_(img_msg);
-      try {
-        save_image_to_file(base64_img, frame_id_safe + "_base64_image.jpg");
-      } catch (const std::exception &e) {
-        RCLCPP_ERROR(rclcpp::get_logger("example_usage"), "Failed to save base64 image: %s", e.what());
-      }
-    
-      images.push_back(base64_img);
+  /**
+   * @brief Stitch multiple ROS images side‑by‑side into a single OpenCV matrix.
+   *
+   * This function converts each input @p sensor_msgs::msg::Image to an OpenCV
+   * BGR8 cv::Mat, then concatenates them horizontally.
+   * If the input vector is empty, a warning is logged and an empty cv::Mat is returned.
+   *
+   * @param[in] ros_imgs
+   *   A vector of ROS Image messages to be stitched. Each image is converted
+   *   via cv_bridge::toCvCopy(..., sensor_msgs::image_encodings::BGR8).
+   *
+   * @return cv::Mat
+   *   A single horizontally‑stitched image. Returns an empty cv::Mat if
+   *   @p ros_imgs is empty.
+   *
+   * @note
+   *   - Uses RVO-friendly return of @c cv::Mat.
+   *   - Logs a warning with RCLCPP_WARN if @p ros_imgs is empty.
+   *   - All images are assumed to share the same height; mismatched sizes may
+   *     lead to undefined behavior.
+   */
+  inline cv::Mat stitch_images_horizontally_(
+      const std::vector<sensor_msgs::msg::Image> &ros_imgs)
+  {
+    if (ros_imgs.empty()) {
+      RCLCPP_WARN(this->get_logger(),
+                  "No images to stitch; returning empty Mat");
+      return {};
     }
-
-
-    const std::string full_prompt = llm_prompt + "\nImages are provided in the following order:\n" + img_order.str();
-
-    try {
-      ollama::request req(ollama::message_type::generation);
-      req["model"] = llm_model;
-      req["prompt"] = full_prompt;
-      req["max_tokens"] = max_tokens_;
-      req["images"] = images;
-
-      const ollama::response resp = ollama::generate(req);
-      const auto jresp = resp.as_json();
-
-      if (!jresp.contains("response") || !jresp["response"].is_string()) {
-        RCLCPP_ERROR(this->get_logger(), "Invalid or missing 'response' field from LLM.");
-        return "";
-      }
-
-      return jresp["response"];
-    } catch (const std::exception &e) {
-      RCLCPP_ERROR(this->get_logger(), "LLM call failed: %s. Is your model loaded?", e.what());
-      return "";
+  
+    std::vector<cv::Mat> mats;
+    mats.reserve(ros_imgs.size());
+  
+    // Use const& in the range loop to avoid unnecessary copies
+    for (const auto &ros_img : ros_imgs) {
+      // convert ROS image → OpenCV RGB8 (more common) or BGR8 if you really need it
+      auto cv_ptr = cv_bridge::toCvCopy(
+          ros_img, sensor_msgs::image_encodings::BGR8);
+      mats.emplace_back(std::move(cv_ptr->image));
     }
+  
+    cv::Mat stitched;
+    cv::hconcat(mats, stitched);  // side‑by‑side
+    return stitched;              // RVO‑friendly
   }
 
   /**
