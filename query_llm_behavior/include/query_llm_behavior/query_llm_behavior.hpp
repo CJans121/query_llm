@@ -263,51 +263,102 @@ private:
      }
    }
 
-  /**
-   * @brief Stitch multiple ROS images side‑by‑side into a single OpenCV matrix.
-   *
-   * This function converts each input @p sensor_msgs::msg::Image to an OpenCV
-   * BGR8 cv::Mat, then concatenates them horizontally.
-   * If the input vector is empty, a warning is logged and an empty cv::Mat is returned.
-   *
-   * @param[in] ros_imgs
-   *   A vector of ROS Image messages to be stitched. Each image is converted
-   *   via cv_bridge::toCvCopy(..., sensor_msgs::image_encodings::BGR8).
-   *
-   * @return cv::Mat
-   *   A single horizontally‑stitched image. Returns an empty cv::Mat if
-   *   @p ros_imgs is empty.
-   *
-   * @note
-   *   - Uses RVO-friendly return of @c cv::Mat.
-   *   - Logs a warning with RCLCPP_WARN if @p ros_imgs is empty.
-   *   - All images are assumed to share the same height; mismatched sizes may
-   *     lead to undefined behavior.
-   */
-  inline cv::Mat stitch_images_horizontally_(
-      const std::vector<sensor_msgs::msg::Image> &ros_imgs)
-  {
-    if (ros_imgs.empty()) {
-      RCLCPP_WARN(this->get_logger(),
-                  "No images to stitch; returning empty Mat");
-      return {};
-    }
-  
-    std::vector<cv::Mat> mats;
-    mats.reserve(ros_imgs.size());
-  
-    // Use const& in the range loop to avoid unnecessary copies
-    for (const auto &ros_img : ros_imgs) {
-      // convert ROS image → OpenCV RGB8 (more common) or BGR8 if you really need it
-      auto cv_ptr = cv_bridge::toCvCopy(
-          ros_img, sensor_msgs::image_encodings::BGR8);
-      mats.emplace_back(std::move(cv_ptr->image));
-    }
-  
-    cv::Mat stitched;
-    cv::hconcat(mats, stitched);  // side‑by‑side
-    return stitched;              // RVO‑friendly
-  }
+   /**
+    * @brief Stitch multiple ROS images side-by-side into a single OpenCV matrix.
+    *
+    * This function converts each input @p sensor_msgs::msg::Image to an OpenCV
+    * BGR8 cv::Mat using cv_bridge, performs type and validity checks, and pads
+    * the images vertically to ensure consistent height before concatenating them
+    * horizontally with OpenCV's @c cv::hconcat.
+    *
+    * If any image is invalid (empty, conversion failure, or mismatched type),
+    * it is skipped with a warning including its @c frame_id. If no valid images
+    * remain after filtering, an empty @c cv::Mat is returned.
+    *
+    * @param[in] ros_imgs
+    *   A vector of ROS Image messages to be stitched. Each image is converted
+    *   via cv_bridge::toCvCopy(..., sensor_msgs::image_encodings::BGR8).
+    *
+    * @return cv::Mat
+    *   A single horizontally-stitched image. Returns an empty @c cv::Mat if
+    *   @p ros_imgs is empty or none of the images are valid.
+    *
+    * @note
+    *   - All images must have the same type; otherwise, mismatched ones are skipped.
+    *   - Images with smaller height are zero-padded (black) at the bottom to match the tallest one.
+    *   - Logs warnings or errors with the descriptive @c frame_id of each image for traceability.
+    */
+   
+    inline cv::Mat stitch_images_horizontally_(
+       const std::vector<sensor_msgs::msg::Image> &ros_imgs)
+   {
+     if (ros_imgs.empty()) {
+       RCLCPP_WARN(this->get_logger(), "No images to stitch; returning empty Mat");
+       return {};
+     }
+   
+     std::vector<cv::Mat> mats;
+     mats.reserve(ros_imgs.size());
+   
+     int max_rows = 0;
+     int ref_type = -1;
+   
+     for (const auto &ros_img : ros_imgs) {
+       const std::string &frame_id = ros_img.header.frame_id;
+   
+       try {
+         auto cv_ptr = cv_bridge::toCvCopy(ros_img, sensor_msgs::image_encodings::BGR8);
+         const cv::Mat &img = cv_ptr->image;
+   
+         if (img.empty()) {
+           RCLCPP_WARN(this->get_logger(), "Image [%s] is empty; skipping.", frame_id.c_str());
+           continue;
+         }
+   
+         if (ref_type == -1) {
+           ref_type = img.type();
+         }
+   
+         if (img.type() != ref_type) {
+           RCLCPP_WARN(this->get_logger(),
+                       "Image [%s] has mismatched type. Expected type %d but got %d. Skipping.",
+                       frame_id.c_str(), ref_type, img.type());
+           continue;
+         }
+   
+         max_rows = std::max(max_rows, img.rows);
+         mats.push_back(img);
+       } catch (const std::exception &e) {
+         RCLCPP_ERROR(this->get_logger(),
+                      "Image [%s] could not be converted: %s", frame_id.c_str(), e.what());
+       }
+     }
+   
+     if (mats.empty()) {
+       RCLCPP_ERROR(this->get_logger(), "No valid images to stitch.");
+       return {};
+     }
+   
+     // Pad all images to match max height
+     for (auto &img : mats) {
+       if (img.rows < max_rows) {
+         int pad = max_rows - img.rows;
+         cv::copyMakeBorder(img, img, 0, pad, 0, 0,
+                            cv::BORDER_CONSTANT, cv::Scalar(0, 0, 0));
+       }
+     }
+   
+     cv::Mat stitched;
+     try {
+       cv::hconcat(mats, stitched);
+     } catch (const std::exception &e) {
+       RCLCPP_ERROR(this->get_logger(), "hconcat failed: %s", e.what());
+       return {};
+     }
+   
+     return stitched;
+   }
+
 
   /**
    * @brief Converts a cv::Mat image to a base64-encoded string using the specified image format.
