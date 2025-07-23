@@ -44,7 +44,7 @@ namespace query_llm_behavior {
  * into a structured object.
  */
 template<typename ParsedType = void>
-class QueryLlm : public BT::SyncActionNode, public rclcpp::Node {
+class QueryLlm : public BT::StatefulActionNode, public rclcpp::Node {
 public:
   /**
    * @brief Constructor for QueryLlm node.
@@ -53,7 +53,7 @@ public:
    * @param config BT node configuration structure.
    */
   inline QueryLlm(const std::string &name, const BT::NodeConfig &config)
-      : BT::SyncActionNode(name, config), Node(name) {}
+      : BT::StatefulActionNode(name, config), Node(name) {}
 
   /**
    * @brief Defines all input/output ports for this node.
@@ -133,7 +133,7 @@ public:
     inference_start_time_ = std::chrono::steady_clock::now();
     auto inference_future = std::async(
       std::launch::async,
-      [this]() {
+      [this, llm_model, llm_prompt, image_list]() {
         return get_llm_answer_(llm_model, llm_prompt, image_list);
       }
     );
@@ -148,7 +148,7 @@ public:
    *
    * @return NodeStatus::SUCCESS if query completed, throws otherwise.
    */
-  inline BT::NodeStatus onRunning(){
+  inline BT::NodeStatus onRunning() override{
 
     // Check if inference has completed
     if (inference_future_.valid() &&
@@ -177,6 +177,11 @@ public:
     // Still waiting
     return BT::NodeStatus::RUNNING;
   }
+
+  /**
+   * @brief Performs cleanup on halt. Unused for now.
+   */
+  void onHalted() override{}
 
 protected:
   /**
