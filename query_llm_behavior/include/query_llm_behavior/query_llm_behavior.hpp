@@ -95,6 +95,21 @@ public:
       llm_model = default_llm_model_;
     }
 
+    // Get llm prompt
+    const auto llm_prompt_exp = getInput<std::string>("llm_prompt");
+    if (!llm_prompt_exp) {
+      throw BT::RuntimeError("Missing or invalid input [llm_prompt]");
+    }
+    const std::string &llm_prompt = llm_prompt_exp.value();
+
+    // Get image list
+    using ImageVecPtr = std::shared_ptr<std::vector<sensor_msgs::msg::Image>>;
+    const auto image_list_exp = getInput<ImageVecPtr>("image_list");
+    if (!image_list_exp) {
+      throw BT::RuntimeError("Missing or invalid input [image_list]");
+    }
+
+    const ImageVecPtr &image_list = image_list_exp.value();
 		
     // Preload model with timeout using scoped future
     {
@@ -113,22 +128,6 @@ public:
       // rethrow any exception from load_model_
       loader.get();
     }
-
-    // Get llm prompt
-    const auto llm_prompt_exp = getInput<std::string>("llm_prompt");
-    if (!llm_prompt_exp) {
-      throw BT::RuntimeError("Missing or invalid input [llm_prompt]");
-    }
-    const std::string &llm_prompt = llm_prompt_exp.value();
-
-    // Get image list
-    using ImageVecPtr = std::shared_ptr<std::vector<sensor_msgs::msg::Image>>;
-    const auto image_list_exp = getInput<ImageVecPtr>("image_list");
-    if (!image_list_exp) {
-      throw BT::RuntimeError("Missing or invalid input [image_list]");
-    }
-
-    const ImageVecPtr &image_list = image_list_exp.value();
 
     // Start LLM inference
     inference_start_time_ = std::chrono::steady_clock::now();
@@ -168,12 +167,11 @@ public:
     // Check for timeout
     auto elapsed = std::chrono::steady_clock::now() - inference_start_time_;
     if (elapsed > inference_timeout_) {
-        throw BT::RuntimeError(
-            "LLM inference timed out after " +
-            std::to_string(
-                std::chrono::duration_cast<std::chrono::seconds>(inference_timeout_).count()
-            ) + " seconds"
-        );
+	const std::string warn_msg =
+        "LLM inference timed out after " + std::to_string(
+            std::chrono::duration_cast<std::chrono::seconds>(inference_timeout_).count()) + " seconds";
+        RCLCPP_WARN(this->get_logger(), "%s", warn_msg.c_str());
+        return BT::NodeStatus::FAILURE;
     }
 
     // Still waiting
