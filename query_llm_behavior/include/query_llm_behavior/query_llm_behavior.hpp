@@ -70,15 +70,10 @@ public:
     };
   }
 
-  /**
-   * @brief Ticks the node once and performs the LLM query.
-   *
-   * This method retrieves inputs (model name, prompt, image list), calls the LLM API,
-   * and sets output ports accordingly.
-   *
-   * @return NodeStatus::SUCCESS if query completed, throws otherwise.
-   */
-  inline BT::NodeStatus tick() override {
+
+  inline BT::NodeStatus onStart() override{
+
+    // Get llm model
     std::string llm_model;
     if (auto llm_model_exp = getInput<std::string>("llm_model"); llm_model_exp) {
       llm_model = llm_model_exp.value();
@@ -90,12 +85,14 @@ public:
     // Preload model
     this->load_model_(llm_model);
 
+    // Get llm prompt
     const auto llm_prompt_exp = getInput<std::string>("llm_prompt");
     if (!llm_prompt_exp) {
       throw BT::RuntimeError("Missing or invalid input [llm_prompt]");
     }
     const std::string &llm_prompt = llm_prompt_exp.value();
 
+    // Get image list
     using ImageVecPtr = std::shared_ptr<std::vector<sensor_msgs::msg::Image>>;
     const auto image_list_exp = getInput<ImageVecPtr>("image_list");
     if (!image_list_exp) {
@@ -103,6 +100,20 @@ public:
     }
 
     const ImageVecPtr &image_list = image_list_exp.value();
+
+    return BT::NodeStatus::RUNNING;
+  
+  }
+	
+  /**
+   * @brief Ticks the node once and performs the LLM query.
+   *
+   * This method retrieves inputs (model name, prompt, image list), calls the LLM API,
+   * and sets output ports accordingly.
+   *
+   * @return NodeStatus::SUCCESS if query completed, throws otherwise.
+   */
+  inline BT::NodeStatus onRunning(){
     const std::string answer = get_llm_answer_(llm_model, llm_prompt, image_list);
 
     RCLCPP_INFO(this->get_logger(), "LLM response:\n%s", answer.c_str());
