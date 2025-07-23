@@ -10,19 +10,27 @@
 #ifndef QUERY_LLM_BEHAVIOR_HPP
 #define QUERY_LLM_BEHAVIOR_HPP
 
-#include <behaviortree_cpp/action_node.h>
-#include <rclcpp/rclcpp.hpp>
+// Cpp headers
 #include <string>
 #include <memory>
 #include <vector>
 #include <sstream>
+#include <future>
+#include <chrono>
+
+// Third-party headers
+#include <behaviortree_cpp/action_node.h>
 #include <opencv2/opencv.hpp>
+
+// ROS headers
+#include <rclcpp/rclcpp.hpp>
 #include <cv_bridge/cv_bridge.h>
-#include <base64/base64.hpp>
 #include <sensor_msgs/msg/image.hpp>
 
+// This packages headers
 #include "ollama/ollama.hpp"
 #include "nlohmann/json.hpp"
+#include "base64/base64.hpp"
 
 namespace query_llm_behavior {
 
