@@ -215,7 +215,7 @@ private:
       const auto models = ollama::list_models();
       const auto found = std::find(models.begin(), models.end(), llm_model);
       if (found != models.end()) {
-        RCLCPP_WARN(this->get_logger(), "Model [%s] is already available locally.", llm_model.c_str());
+        RCLCPP_INFO(this->get_logger(), "Model [%s] is already available locally.", llm_model.c_str());
         return;
       }
     } catch (const std::exception &e) {
@@ -297,14 +297,6 @@ private:
        RCLCPP_ERROR(this->get_logger(),
                     "Failed to base64‑encode stitched image: %s", e.what());
        return "";
-     }
-   
-     // Optional: save for debugging
-     try {
-       save_image_to_file(stitched_b64, "stitched_base64_image.jpg");
-     } catch (const std::exception &e) {
-       RCLCPP_WARN(this->get_logger(),
-                   "Could not save debug image: %s", e.what());
      }
    
      // Build & send the request
