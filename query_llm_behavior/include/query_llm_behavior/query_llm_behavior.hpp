@@ -138,8 +138,42 @@ public:
    * @return NodeStatus::SUCCESS if query completed, throws otherwise.
    */
   inline BT::NodeStatus onRunning(){
-    const std::string answer = get_llm_answer_(llm_model, llm_prompt, image_list);
 
+  std::string answer;
+
+    // Run llm inference with timeout using scoped future
+    { 
+      // launch get_llm_answer_() in a background thread
+      auto llm_future = std::async(
+        std::launch::async,
+        [this]() {
+          return get_llm_answer_(llm_model, llm_prompt, image_list);
+        }
+      );
+
+      // Wait for the LLM response up to llm_response_timeout_
+      if (llm_future.wait_for(llm_response_timeout_)
+          == std::future_status::timeout)
+      {
+        throw BT::RuntimeError(
+          "LLM inference timed out after " +
+          std::to_string(timeout_secs) +
+          " seconds"
+        );
+      }
+        // wait up to inference_timeout_
+        if (llm_future.wait_for(inference_timeout_) 
+            == std::future_status::timeout)
+        {
+          throw BT::RuntimeError("LLM inference timed out after " + std::to_string(
+            std::chrono::duration_cast<std::chrono::seconds>(inference_timeout_).count()) + " seconds");
+        }
+
+      // Retrieve result (or rethrow any exception from get_llm_answer_)
+      answer = llm_future.get();
+    } 
+
+    // Set the output
     RCLCPP_INFO(this->get_logger(), "LLM response:\n%s", answer.c_str());
     setOutput("llm_answer", std::make_shared<std::string>(answer));
 
@@ -520,7 +554,11 @@ inline std::string convert_msg_to_base64_(const sensor_msgs::msg::Image &ros_ima
   const std::string img_format_ = "jpeg";
 
   /// Timeout for preloading model
-  const int preload_timeout_ = std::chrono::minutes(2);
+  const std::chrono::steady_clock::duration preload_timeout_ = std::chrono::minutes(2);
+
+  /// Timeout for preloading model
+  const std::chrono::steady_clock::duration inference_timeout_ = std::chrono::minutes(1);
+
 };
 
 } // namespace query_llm_behavior
