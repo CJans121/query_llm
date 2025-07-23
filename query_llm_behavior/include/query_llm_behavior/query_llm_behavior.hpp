@@ -131,7 +131,7 @@ public:
 
     // Start LLM inference
     inference_start_time_ = std::chrono::steady_clock::now();
-    auto inference_future = std::async(
+    inference_future_ = std::async(
       std::launch::async,
       [this, llm_model, llm_prompt, image_list]() {
         return get_llm_answer_(llm_model, llm_prompt, image_list);
@@ -264,6 +264,7 @@ private:
        const std::string &llm_prompt,
        const std::shared_ptr<std::vector<sensor_msgs::msg::Image>> &img_msg_list)
    {
+     RCLCPP_INFO(this->get_logger(), "Running LLM inference");
      // Validate input
      if (!img_msg_list || img_msg_list->empty()) {
        RCLCPP_ERROR(this->get_logger(),
