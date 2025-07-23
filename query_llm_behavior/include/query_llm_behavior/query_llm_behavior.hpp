@@ -90,8 +90,24 @@ public:
       llm_model = default_llm_model_;
     }
 
-    // Preload model
-    this->load_model_(llm_model);
+		
+    // Preload model with timeout using scoped future
+    {
+      // launch load_model_() in a background thread
+      auto loader = std::async(std::launch::async, [this, llm_model]() {
+        this->load_model_(llm_model);
+      });
+
+      // wait up to preload_timeout_
+      if (loader.wait_for(preload_timeout_) 
+          == std::future_status::timeout)
+      {
+        throw BT::RuntimeError("Loading LLM model timed out after " + std::to_string(
+          std::chrono::duration_cast<std::chrono::minutes>(preload_timeout_).count()) + " minutes");
+      }
+      // rethrow any exception from load_model_
+      loader.get();
+    }
 
     // Get llm prompt
     const auto llm_prompt_exp = getInput<std::string>("llm_prompt");
@@ -502,6 +518,9 @@ inline std::string convert_msg_to_base64_(const sensor_msgs::msg::Image &ros_ima
 
   /// Image format for encoding
   const std::string img_format_ = "jpeg";
+
+  /// Timeout for preloading model
+  const int preload_timeout_ = std::chrono::minutes(2);
 };
 
 } // namespace query_llm_behavior
