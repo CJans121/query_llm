@@ -557,7 +557,7 @@ inline std::string convert_msg_to_base64_(const sensor_msgs::msg::Image &ros_ima
   const std::chrono::steady_clock::duration preload_timeout_ = std::chrono::minutes(2);
 
   /// Timeout for preloading model
-  const std::chrono::steady_clock::duration inference_timeout_ = std::chrono::minutes(1);
+  const std::chrono::steady_clock::duration inference_timeout_ = std::chrono::minutes(2);
 
   /// Future to get llm answer
   std::future<std::string> inference_future_;
