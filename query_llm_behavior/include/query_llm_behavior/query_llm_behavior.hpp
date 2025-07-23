@@ -79,6 +79,11 @@ public:
   }
 
 
+  /**
+   * @brief Invoked once at the beginning. This method retrieves inputs (model name, prompt, image list), loads the model, and runs inference on it.
+   *
+   * @return RUNNING if successful in loading the model and calling inference.
+   */
   inline BT::NodeStatus onStart() override{
 
     // Get llm model
@@ -139,10 +144,8 @@ public:
   }
 	
   /**
-   * @brief Ticks the node once and performs the LLM query.
-   *
-   * This method retrieves inputs (model name, prompt, image list), calls the LLM API,
-   * and sets output ports accordingly.
+   * @brief If onStart() returned RUNNING, this method is constantly called until it returns something other than RUNNING.
+   * Checks whether LLM inference has successfully completed and sets the output ports accordingly.
    *
    * @return NodeStatus::SUCCESS if query completed, throws otherwise.
    */
