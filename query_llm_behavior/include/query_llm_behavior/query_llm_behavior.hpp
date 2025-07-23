@@ -151,16 +151,6 @@ public:
         }
       );
 
-      // Wait for the LLM response up to llm_response_timeout_
-      if (llm_future.wait_for(llm_response_timeout_)
-          == std::future_status::timeout)
-      {
-        throw BT::RuntimeError(
-          "LLM inference timed out after " +
-          std::to_string(timeout_secs) +
-          " seconds"
-        );
-      }
         // wait up to inference_timeout_
         if (llm_future.wait_for(inference_timeout_) 
             == std::future_status::timeout)
