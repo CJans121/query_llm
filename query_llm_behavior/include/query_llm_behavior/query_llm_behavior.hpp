@@ -125,6 +125,15 @@ public:
 
     const ImageVecPtr &image_list = image_list_exp.value();
 
+    // Start LLM inference
+    inference_start_time_ = std::chrono::steady_clock::now();
+    auto inference_future = std::async(
+      std::launch::async,
+      [this]() {
+        return get_llm_answer_(llm_model, llm_prompt, image_list);
+      }
+    );
+
     return BT::NodeStatus::RUNNING;
   
   }
@@ -139,38 +148,33 @@ public:
    */
   inline BT::NodeStatus onRunning(){
 
-  std::string answer;
-
-    // Run llm inference with timeout using scoped future
-    { 
-      // launch get_llm_answer_() in a background thread
-      auto llm_future = std::async(
-        std::launch::async,
-        [this]() {
-          return get_llm_answer_(llm_model, llm_prompt, image_list);
-        }
-      );
-
-        // wait up to inference_timeout_
-        if (llm_future.wait_for(inference_timeout_) 
-            == std::future_status::timeout)
-        {
-          throw BT::RuntimeError("LLM inference timed out after " + std::to_string(
-            std::chrono::duration_cast<std::chrono::seconds>(inference_timeout_).count()) + " seconds");
-        }
-
-      // Retrieve result (or rethrow any exception from get_llm_answer_)
-      answer = llm_future.get();
-    } 
-
+    // Check if inference has completed
+    if (inference_future_.valid() &&
+        inference_future_.wait_for(std::chrono::milliseconds(0)) == std::future_status::ready)
+    {
     // Set the output
-    RCLCPP_INFO(this->get_logger(), "LLM response:\n%s", answer.c_str());
-    setOutput("llm_answer", std::make_shared<std::string>(answer));
-
-    if (auto parsed = parse_llm_answer(answer); parsed) {
-      setOutput("llm_parsed_answer", parsed);
+        std::string answer = inference_future_.get();
+        RCLCPP_INFO(this->get_logger(), "LLM response:\n%s", answer.c_str());
+        setOutput("llm_answer", std::make_shared<std::string>(answer));
+        if (auto parsed = parse_llm_answer(answer); parsed) {
+            setOutput("llm_parsed_answer", parsed);
+        }
+        return BT::NodeStatus::SUCCESS;
     }
-    return BT::NodeStatus::SUCCESS;
+
+    // Check for timeout
+    auto elapsed = std::chrono::steady_clock::now() - inference_start_time_;
+    if (elapsed > inference_timeout_) {
+        throw BT::RuntimeError(
+            "LLM inference timed out after " +
+            std::to_string(
+                std::chrono::duration_cast<std::chrono::seconds>(inference_timeout_).count()
+            ) + " seconds"
+        );
+    }
+
+    // Still waiting
+    return BT::NodeStatus::RUNNING;
   }
 
 protected:
@@ -548,6 +552,12 @@ inline std::string convert_msg_to_base64_(const sensor_msgs::msg::Image &ros_ima
 
   /// Timeout for preloading model
   const std::chrono::steady_clock::duration inference_timeout_ = std::chrono::minutes(1);
+
+  /// Future to get llm answer
+  std::future<std::string> inference_future_;
+
+  /// Inference start time
+  std::chrono::steady_clock::time_point inference_start_time_;
 
 };
 
