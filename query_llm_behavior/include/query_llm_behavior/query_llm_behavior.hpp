@@ -126,7 +126,13 @@ public:
           std::chrono::duration_cast<std::chrono::minutes>(preload_timeout_).count()) + " minutes");
       }
       // rethrow any exception from load_model_
-      loader.get();
+      try {
+	      loader.get();
+	  }
+      catch(const std::exception& e) {
+	      RCLCPP_WARN(this->get_logger(), "Unable to load model due to the following exception, returning FAILURE: %s", e.what());
+	      return BT::NodeStatus::FAILURE;
+ 	                             }
     }
 
     // Start LLM inference
@@ -154,8 +160,16 @@ public:
     if (inference_future_.valid() &&
         inference_future_.wait_for(std::chrono::milliseconds(0)) == std::future_status::ready)
     {
-    // Set the output
-        std::string answer = inference_future_.get();
+        // Set the output
+        std::string answer;
+        try {
+		answer = inference_future_.get();
+	    }
+        catch(const std::exception& e) {
+		RCLCPP_WARN(this->get_logger(), "Caught exception during inference, returning FAILURE: %s", e.what());
+		return BT::NodeStatus::FAILURE;
+	                               }
+
         RCLCPP_INFO(this->get_logger(), "LLM response:\n%s", answer.c_str());
         setOutput("llm_answer", std::make_shared<std::string>(answer));
         if (auto parsed = parse_llm_answer(answer); parsed) {
@@ -308,6 +322,8 @@ private:
        req["max_tokens"] = max_tokens_;
        req["image"]      = stitched_b64;
    
+       ollama::setReadTimeout(std::chrono::duration_cast<std::chrono::seconds>(inference_timeout_).count());
+       ollama::setWriteTimeout(std::chrono::duration_cast<std::chrono::seconds>(inference_timeout_).count());
        const ollama::response resp = ollama::generate(req);
        const auto jresp = resp.as_json();
    
@@ -550,7 +566,7 @@ inline std::string convert_msg_to_base64_(const sensor_msgs::msg::Image &ros_ima
   const std::chrono::steady_clock::duration preload_timeout_ = std::chrono::minutes(2);
 
   /// Timeout for preloading model
-  const std::chrono::steady_clock::duration inference_timeout_ = std::chrono::minutes(2);
+  const std::chrono::steady_clock::duration inference_timeout_ = std::chrono::minutes(1);
 
   /// Future to get llm answer
   std::future<std::string> inference_future_;
