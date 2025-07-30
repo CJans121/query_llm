@@ -182,7 +182,7 @@ public:
         return BT::NodeStatus::FAILURE;
       }
 
-      RCLCPP_INFO(this->get_logger(), "LLM response:\n%s", answer.c_str());
+      RCLCPP_WARN(this->get_logger(), "LLM response:\n%s", answer.c_str());
       setOutput("llm_answer", std::make_shared<std::string>(answer));
       if (auto parsed = parse_llm_answer(answer); parsed) {
         setOutput("llm_parsed_answer", parsed);
@@ -356,6 +356,9 @@ private:
       ollama::setWriteTimeout(
           std::chrono::duration_cast<std::chrono::seconds>(inference_timeout_)
               .count());
+      // ollama::options opts;
+      // opts["url"] = "http://host.docker.internal:11434";
+      // const ollama::response resp = ollama::generate(req, opts);
       const ollama::response resp = ollama::generate(req);
       const auto jresp = resp.as_json();
 
@@ -625,7 +628,8 @@ private:
 
   /// Timeout for preloading model
   const std::chrono::steady_clock::duration inference_timeout_ =
-      std::chrono::minutes(1);
+      // std::chrono::minutes(1);
+      std::chrono::seconds(60);
 
   /// Future to get llm answer
   std::future<std::string> inference_future_;
