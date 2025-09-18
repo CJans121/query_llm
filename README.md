@@ -5,3 +5,4 @@ Houses a Behavior Tree node that queries a multimodal LLM using a prompt and opt
 - ROS humble
 - Behaviortree cpp
 - ollama : `curl -fsSL https://ollama.com/install.sh | sh`
+- Pull desired model as: `ollama pull <model_name>`
