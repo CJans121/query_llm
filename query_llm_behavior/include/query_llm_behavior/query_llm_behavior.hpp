@@ -365,7 +365,7 @@ private:
 	    // Construct the request
 	    const std::string stitched_b64_url = "data:image/" + img_format_ + ";base64," + stitched_b64;
             nlohmann::json messages = {{{"role", llm_role_}, {"content", {}}}};
-            messages[0]["content"].push_back({{"type", "text"}, {"text", full_prompt);
+	    messages[0]["content"].push_back({{"type", "text"}, {"text", full_prompt}});
 	    messages[0]["content"].push_back({{"type", "image_url"}, {"image_url", {{"url", stitched_b64_url}}}});
 	    const nlohmann::json request = {{"model", llm_model}, {"messages", messages}, {"max_tokens", max_tokens_}};
 	    auto completion = openai::chat().create(request);
