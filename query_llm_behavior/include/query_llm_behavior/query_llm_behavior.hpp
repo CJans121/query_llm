@@ -376,7 +376,7 @@ private:
 
 	catch (const std::exception &e)
 	{
-	    RCLCPP_ERROR(this->get_logger(), "Unable to call OPENAI API: ", e.what());
+	    RCLCPP_ERROR(this->get_logger(), "Unable to call OPENAI API: %s", e.what());
 	    return "";
 	}
     }
