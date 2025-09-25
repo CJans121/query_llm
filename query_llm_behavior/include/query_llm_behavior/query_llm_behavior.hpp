@@ -359,7 +359,7 @@ private:
 	try
 	{
 	    // Ensure OPENAI_API_KEY was set
-            if (openai_api_key_set_) {
+            if (!openai_api_key_set_) {
             	RCLCPP_ERROR(this->get_logger(), "Unable to communicate with OpenAI due to the API key not being set.");
 	         return "";
 	    }
