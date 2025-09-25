@@ -54,7 +54,17 @@ public:
    * @param config BT node configuration structure.
    */
   inline QueryLlm(const std::string &name, const BT::NodeConfig &config)
-      : BT::StatefulActionNode(name, config), Node(name) {}
+      : BT::StatefulActionNode(name, config), Node(name) {
+
+	// If OPENAI API Key is set start communication with the API
+	const char* api_key = std::getenv("OPENAI_API_KEY");
+	openai_api_key_set_ = std::strlen(api_key) > 0;
+
+        if (openai_api_key_set_) {
+        	RCLCPP_INFO(this->get_logger(), "Starting OpenAI communication with provided API key.");
+                openai::start();  // picks up OPENAI_API_KEY internally
+	}
+}
 
   /**
    * @brief Defines all input/output ports for this node.
@@ -306,7 +316,7 @@ private:
   get_llm_answer_(const std::string &llm_model, const std::string &llm_prompt,
                   const std::shared_ptr<std::vector<sensor_msgs::msg::Image>>
                       &img_msg_list) {
-    RCLCPP_INFO(this->get_logger(), "Running LLM inference");
+    RCLCPP_INFO(this->get_logger(), "Running inference on model %s", llm_model.c_str());
     // Validate input
     if (!img_msg_list || img_msg_list->empty()) {
       RCLCPP_ERROR(this->get_logger(),
@@ -341,6 +351,35 @@ private:
                    "Failed to base64‑encode stitched image: %s", e.what());
       return "";
     }
+
+    // If OpenAI
+    if (llm_model.substr(0, 3) == "gpt") {
+	try
+	{
+	    // Ensure OPENAI_API_KEY was set
+            if (openai_api_key_set_) {
+            	RCLCPP_ERROR(this->get_logger(), "Unable to communicate with OpenAI due to the API key not being set.");
+	         return "";
+	    }
+	    // Construct the request
+	    const std::string stitched_b64_url = "data:image/" + img_format_ + ";base64," + stitched_b64;
+            nlohmann::json messages = {{{"role", llm_role_}, {"content", {}}}};
+            messages[0]["content"].push_back({{"type", "text"}, {"text", full_prompt);
+	    messages[0]["content"].push_back({{"type", "image_url"}, {"image_url", {{"url", stitched_b64_url}}}});
+	    const nlohmann::json request = {{"model", llm_model}, {"messages", messages}, {"max_tokens", max_tokens_}};
+	    auto completion = openai::chat().create(request);
+	    const std::string answer = completion["choices"][0]["message"]["content"];
+	    return  answer;
+	}
+
+	catch (const std::exception &e)
+	{
+	    RCLCPP_ERROR(this->get_logger(), "Unable to call OPENAI API: ", e.what());
+	    return "";
+	}
+    }
+
+    // Else Ollama
 
     // Build & send the request
     try {
@@ -615,6 +654,12 @@ private:
 
   /// Default LLM model name (used when no model is specified via input port).
   static constexpr const char *default_llm_model_ = "llava";
+
+  /// LLM Role
+  const std::string llm_role_ = "user";
+
+  /// Whether OPENAI_API_KEY environment variable is set
+  bool openai_api_key_set_ = false;
 
   /// Maximum number of tokens allowed in the LLM response.
   const int max_tokens_ = 200;
