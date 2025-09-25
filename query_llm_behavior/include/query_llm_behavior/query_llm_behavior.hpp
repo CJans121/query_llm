@@ -131,7 +131,8 @@ public:
 
     const ImageVecPtr &image_list = image_list_exp.value();
 
-    // Preload model with timeout using scoped future
+    // Preload ollama model with timeout using scoped future
+    if (llm_model.substr(0, 3) != "gpt")
     {
       // launch load_model_() in a background thread
       auto loader = std::async(std::launch::async, [this, llm_model]() {
