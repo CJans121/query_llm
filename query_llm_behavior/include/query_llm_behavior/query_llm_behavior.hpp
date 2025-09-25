@@ -32,6 +32,7 @@
 #include "base64/base64.hpp"
 #include "nlohmann/json.hpp"
 #include "ollama/ollama.hpp"
+#include "openai/openai.hpp"
 
 namespace query_llm_behavior {
 
