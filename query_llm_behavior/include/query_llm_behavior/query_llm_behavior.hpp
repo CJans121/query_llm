@@ -59,7 +59,7 @@ public:
 
 	// If OPENAI API Key is set start communication with the API
 	const char* api_key = std::getenv("OPENAI_API_KEY");
-	openai_api_key_set_ = std::strlen(api_key) > 0;
+	openai_api_key_set_ = (api_key != nullptr) && (std::strlen(api_key) > 0);
 
         if (openai_api_key_set_) {
         	RCLCPP_INFO(this->get_logger(), "Starting OpenAI communication with provided API key.");
